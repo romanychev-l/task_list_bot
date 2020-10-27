@@ -1,5 +1,6 @@
 import config
 import random
+import pickle
 
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.utils.executor import start_webhook
@@ -19,13 +20,13 @@ dp = Dispatcher(bot)
 channel_id = -1001380279825
 my_id = 248603604
 
-keyb = 0
-import emoji
-#OK = emoji.emojize(':check_mark_button:')
-#OK = "\U0002705"
-#NOK = emoji.emojize(':cross_mark:')
+f = open(r'keyb.txt', 'rb')
+keyb = pickle.load(f)#types.InlineKeyboardMarkup(pickle.load(f))
+f.close()
+
 OK = '✅'
 NOK = '❌'
+
 
 async def on_startup(dp):
     await bot.set_webhook(WEBHOOK_URL)
@@ -65,6 +66,12 @@ def update_data(data):
     for val in data:
         f.write(val + '\n')
 
+    f.close()
+
+
+def up_keyb():
+    f = open(r'keyb.txt', 'wb')
+    pickle.dump(keyb, f)
     f.close()
 
 
@@ -121,31 +128,38 @@ async def inline(message):
 
     key = types.InlineKeyboardMarkup()
     for i in range(0, len(a)):
-        #key = types.InlineKeyboardMarkup()
-        but = types.InlineKeyboardButton(text=OK)# + ' ' + a[i], callback_dat=str(i+1))
+        but = types.InlineKeyboardButton(text=NOK + ' ' + a[i], callback_data=str(i+1))
         key.add(but)
+    global keyb
     keyb = key
+    up_keyb()
 
     await bot.send_message(channel_id, 'План:', reply_markup=key)
 
 
 @dp.callback_query_handler(lambda c:True)
 async def inline(c):
-    print("c\n")
-    print(c.data)
+    global keyb
     if c['from']['id'] != my_id:
         return
 
-    if int(c.data) > 0:
-        but = types.InlineKeyboardButton(text=NOK, callback_dat=str(-1*int(c.data)))
+    d = int(c.data)
+    if d > 0:
+        but = types.InlineKeyboardButton(text=NOK, callback_data=str(-1*d))
     else:
-        but = types.InlineKeyboardButton(text=OK, callback_data=str(-1*int(c.data)))
+        but = types.InlineKeyboardButton(text=OK, callback_data=str(-1*d))
+    n = len(keyb['inline_keyboard'])
+    for i in range(n):
+        if keyb['inline_keyboard'][i][0]['callback_data'] == str(d):
+            t = keyb['inline_keyboard'][i][0]['text'][2:]
+            if d > 0:
+                but = types.InlineKeyboardButton(text=OK + ' ' + t, callback_data=str(-1*d))
+            else:
+                but = types.InlineKeyboardButton(text=NOK + ' ' + t, callback_data=str(-1*d))
 
-    #print(keyb)
-    key = types.InlineKeyboardMarkup()
+            keyb['inline_keyboard'][i][0] = but
 
-    key.add(but)
-    await bot.edit_message_reply_markup(chat_id=channel_id, message_id=c.message.message_id, reply_markup = key)
+    await bot.edit_message_reply_markup(chat_id=channel_id, message_id=c.message.message_id, reply_markup=keyb)
 
 
 if __name__ == '__main__':
