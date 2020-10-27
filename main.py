@@ -21,10 +21,11 @@ my_id = 248603604
 
 keyb = 0
 import emoji
-OK = emoji.emojize(':check_mark_button:')
+#OK = emoji.emojize(':check_mark_button:')
 #OK = "\U0002705"
-NOK = emoji.emojize(':cross_mark:')
-
+#NOK = emoji.emojize(':cross_mark:')
+OK = '✅'
+NOK = '❌'
 
 async def on_startup(dp):
     await bot.set_webhook(WEBHOOK_URL)
