@@ -16,12 +16,12 @@ WEBAPP_PORT = 7771
 bot = Bot(token=config.token)
 dp = Dispatcher(bot)
 
-#channel_id = -1001381328759
-channel_id = -1001380279825
+channel_id = -1001381328759
+#channel_id = -1001380279825
 my_id = 248603604
 
 f = open(r'keyb.txt', 'rb')
-keyb = pickle.load(f)#types.InlineKeyboardMarkup(pickle.load(f))
+keyb = pickle.load(f)
 f.close()
 
 OK = '✅'
