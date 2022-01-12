@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.utils.executor import start_webhook
 
 
-WEBHOOK_HOST = 'https://romanychev.online'
+WEBHOOK_HOST = 'https://lenichev.ru'
 WEBHOOK_PATH = '/tasks/'
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
@@ -16,9 +16,16 @@ WEBAPP_PORT = 7771
 bot = Bot(token=config.token)
 dp = Dispatcher(bot)
 
-channel_id = -1001381328759
+#channel_id = -1001381328759
+channel_id = -1001422711251
 #channel_id = -1001380279825
 my_id = 248603604
+id_dict = {
+    248603604: -1001381328759,
+    # test
+    #248603604: -1001422711251,
+    363513023: -1001510058413
+}
 
 f = open(r'keyb.txt', 'rb')
 keyb = pickle.load(f)
@@ -37,18 +44,9 @@ async def on_shutdown(dp):
 
 
 def put_string(s):
-	l = 0
-	r = 2
-	a = []
-	while(r < len(s)):
-		if s[r] == '\n':
-			a.append(s[l:r])
-			l = r + 1
-			r += 1
-		else:
-			r += 1
-	a.append(s[l:r])
-	return a
+    a = s.split('\n')
+    a = [ str(i + 1) + '. ' + a[i] for i in range(0, len(a))]
+    return a
 
 
 def get_data():
@@ -75,7 +73,7 @@ def up_keyb():
     f.close()
 
 
-@dp.message_handler(commands=['start'])
+@dp.message_handler(commands=['enter'])
 async def reg_fun(msg):
     if(not 'username' in msg['chat']):
         await bot.send_message(msg['chat']['id'], 'Я не вижу ваш ник - откройте доступ в настройках и повторите команду')
@@ -105,42 +103,42 @@ async def unreg_fun(msg):
 
 @dp.channel_post_handler(content_types=["text"])
 async def get_winner(msg):
-    if msg['text'] != 'Выбрать победителя':
-        return
-    chat_id = msg['chat']['id']
-    if chat_id != my_id and chat_id != channel_id:
-        return
-    data = get_data()
-    n = len(data)
-    await bot.send_message(my_id, 'Всего участников ' + str(n))
-    if n == 0:
-        return
-    k = random.randint(0, n-1)
-    await bot.send_message(channel_id, 'Сегодня выиграл:\n@' + data[k] + '\n' +\
-    'Чтобы участвовать в розыгрыше запусти бота @romanychev_bot')
+    print('msg', msg)
+    if msg.text[:4] == 'План':
+        try:
+            a = put_string(msg.text[6:])
 
+            key = types.InlineKeyboardMarkup()
+            for i in range(0, len(a)):
+                but = types.InlineKeyboardButton(text=NOK + ' ' + a[i],
+                    callback_data=str(i+1))
+                key.add(but)
 
-@dp.message_handler(content_types=["text"])
-async def inline(message):
-    if message.text[:4] != 'План':
-        return
-    a = put_string(message.text[5:])
+            await bot.edit_message_text(chat_id=msg['chat']['id'],
+                message_id=msg['message_id'], text='План:', reply_markup=key)
+        except Exception as e:
+            await bot.send_message(msg['chat']['id'], 'Неверный формат')
 
-    key = types.InlineKeyboardMarkup()
-    for i in range(0, len(a)):
-        but = types.InlineKeyboardButton(text=NOK + ' ' + a[i], callback_data=str(i+1))
-        key.add(but)
-    global keyb
-    keyb = key
-    up_keyb()
-
-    await bot.send_message(channel_id, 'План:', reply_markup=key)
+    elif msg['text'] == 'Выбрать победителя':
+        chat_id = msg['chat']['id']
+        if chat_id != my_id and chat_id != channel_id:
+            return
+        data = get_data()
+        n = len(data)
+        await bot.send_message(my_id, 'Всего участников ' + str(n))
+        if n == 0:
+            return
+        k = random.randint(0, n-1)
+        await bot.send_message(channel_id, 'Сегодня выиграл:\n@' + data[k] + '\n' +\
+        'Чтобы участвовать в розыгрыше запусти бота @romanychev_bot')
 
 
 @dp.callback_query_handler(lambda c:True)
 async def inline(c):
     global keyb
-    if c['from']['id'] != my_id:
+    keyb = c['message']['reply_markup']
+
+    if not c['from']['id'] in id_dict.keys():
         return
 
     d = int(c.data)
@@ -159,7 +157,8 @@ async def inline(c):
 
             keyb['inline_keyboard'][i][0] = but
 
-    await bot.edit_message_reply_markup(chat_id=channel_id, message_id=c.message.message_id, reply_markup=keyb)
+    await bot.edit_message_reply_markup(chat_id=c['message']['chat']['id'],
+        message_id=c.message.message_id, reply_markup=keyb)
 
 
 if __name__ == '__main__':
