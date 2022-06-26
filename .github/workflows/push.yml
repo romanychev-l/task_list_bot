@@ -86,37 +86,37 @@ jobs:
         docker push $IMAGE_NAME
 
   deploy_prod:
-     runs-on: self-hosted
-     needs: [
-       build,
-     ]
+    runs-on: self-hosted
+    needs: [
+      build,
+    ]
 
-     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.head_commit.message, '`#deploy`') }}
+    if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.head_commit.message, '`#deploy`') }}
 
-     env:
-       IMAGE_NAME: ${{ needs.build.outputs.IMAGE_NAME }}
+    env:
+      IMAGE_NAME: ${{ needs.build.outputs.IMAGE_NAME }}
 
-     steps:
-     - uses: actions/checkout@v2
+    steps:
+    - uses: actions/checkout@v2
 
-      - name: Prepare
-        id: prep
-        run: |
-          TAG=$(echo $GITHUB_SHA | head -c7)
-          IMAGE=ghcr.io/romanychev-l/task_list_bot/bot_app
-          echo "::add-mask::${IMAGE}:${TAG}"
-          echo ::set-output name=tagged_image::${IMAGE}:${TAG}
+    - name: Prepare
+      id: prep
+      run: |
+        TAG=$(echo $GITHUB_SHA | head -c7)
+        IMAGE=ghcr.io/romanychev-l/task_list_bot/bot_app
+        echo "::add-mask::${IMAGE}:${TAG}"
+        echo ::set-output name=tagged_image::${IMAGE}:${TAG}
 
-     - name: Create prod envfile
-       env:
-         PROD_ENVFILE: ${{ secrets.PROD_ENVFILE }}
-       run: |
-         echo "$PROD_ENVFILE" > .env.prod
+    - name: Create prod envfile
+      env:
+        PROD_ENVFILE: ${{ secrets.PROD_ENVFILE }}
+      run: |
+        echo "$PROD_ENVFILE" > .env.prod
 
-     - name: Login to Container Registry
-       run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
+    - name: Login to Container Registry
+      run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
 
-     - name: Deploy app
-       env:
-         IMAGE_NAME: ${{ steps.prep_app.outputs.tagged_image }}
-       run: docker stack deploy --with-registry-auth -c docker-compose.prod.yml fullstats-api
+    - name: Deploy app
+      env:
+        IMAGE_NAME: ${{ steps.prep_app.outputs.tagged_image }}
+      run: docker stack deploy --with-registry-auth -c docker-compose.prod.yml fullstats-api
