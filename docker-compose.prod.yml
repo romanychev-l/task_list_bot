@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  app:
+    image: $IMAGE_NAME
+    hostname: "{{.Service.Name}}-{{.Task.Slot}}"
+    env_file:
+      - .env.prod
+    deploy:
+      mode: replicated
+      replicas: 1

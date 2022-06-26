@@ -1,4 +1,4 @@
-import config
+from os import environ
 import random
 import pickle
 
@@ -13,7 +13,8 @@ WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 WEBAPP_HOST = '127.0.0.1'
 WEBAPP_PORT = 7771
 
-bot = Bot(token=config.token)
+print(environ)
+bot = Bot(token=environ.get('TG_TOKEN'))
 dp = Dispatcher(bot)
 
 #channel_id = -1001381328759
