@@ -116,3 +116,5 @@ jobs:
       env:
         IMAGE_NAME: ${{ steps.prep_app.outputs.tagged_image }}
       run: docker stack deploy --with-registry-auth -c docker-compose.prod.yml task-list-bot
+
+# dummy commit
