@@ -28,5 +28,3 @@ RUN poetry run pip install setuptools==59.6.0 \
   && find /usr/local -type f -name '*.pyc' -delete
 
 COPY . /code/
-
-RUN python main.py
