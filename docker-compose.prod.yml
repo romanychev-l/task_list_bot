@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  app:
+    image: $IMAGE_NAME
+    hostname: "{{.Service.Name}}-{{.Task.Slot}}"
+    env_file:
+      - local.env.prod
+    networks:
+      - fullstats-network
+      - traefik-public
+    deploy:
+      mode: replicated
+      replicas: 1

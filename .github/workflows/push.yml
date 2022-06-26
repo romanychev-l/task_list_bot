@@ -1,0 +1,122 @@
+name: Build on push
+
+on:
+  push:
+    branches-ignore:
+      - 'dependabot/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      IMAGE_NAME: ${{ steps.prep.outputs.tagged_image }}
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Prepare
+      id: prep
+      run: |
+        TAG=$(echo $GITHUB_SHA | head -c7)
+        IMAGE=ghcr.io/romanychev-l/task_list_bot/bot_app
+        echo "::add-mask::${IMAGE}:${TAG}"
+        echo ::set-output name=tagged_image::${IMAGE}:${TAG}
+
+    - name: Login to Container Registry
+      run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
+
+    - name: Set up Docker Buildx
+      id: buildx
+      uses: docker/setup-buildx-action@master
+      with:
+        install: true
+        buildkitd-flags: --debug
+
+    - name: Cache Docker layers
+      uses: actions/cache@v2
+      with:
+        path: /tmp/.bot-app-buildx-cache
+        key: bot-app-buildx-${{ github.sha }}
+        restore-keys: |
+          bot-app-buildx
+
+    - name: Create local.env file
+      run: |
+        cp .env.ci src/app/settings/.env
+
+    - name: Build docker image
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        builder: ${{ steps.buildx.outputs.name }}
+        file: Dockerfile
+        tags: ${{ steps.prep.outputs.tagged_image }}
+        cache-from: type=local,src=/tmp/.bot-app-buildx-cache
+        cache-to: type=local,mode=max,dest=/tmp/.bot-app-buildx-cache-new
+        load: true
+
+    - name: Move cache
+      if: ${{ always() }}
+      run: |
+        rm -rf /tmp/.bot-app-buildx-cache
+        mv /tmp/.bot-app-buildx-cache-new /tmp/.bot-app-buildx-cache
+
+#    - name: Run linters, check types and tests
+#      env:
+#        IMAGE_NAME: ${{ steps.prep.outputs.tagged_image }}
+#      run: |
+#        docker-compose \
+#          -p fullstats-api-$GITHUB_RUN_ID \
+#          -f docker-compose.test.yml \
+#          run --rm app \
+#            bash -c " \
+#              dockerize -wait 'tcp://db:5432' -timeout 20s \
+#              && flake8 \
+#              && cd src \
+#              && mypy --config-file ../setup.cfg . \
+#              && python manage.py makemigrations --dry-run --check \
+#              && pytest -n 2 --cov --cov-fail-under=40 \
+#            "
+
+    - name: Push image
+      if: ${{ (github.ref == 'refs/heads/master') || (github.ref == 'refs/heads/dev') || contains(github.event.head_commit.message, '`#deploy`') }}
+      env:
+        IMAGE_NAME: ${{ steps.prep.outputs.tagged_image }}
+      run: |
+        docker push $IMAGE_NAME
+
+  deploy_prod:
+     runs-on: self-hosted
+     needs: [
+       build,
+     ]
+
+     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.head_commit.message, '`#deploy`') }}
+
+     env:
+       IMAGE_NAME: ${{ needs.build.outputs.IMAGE_NAME }}
+
+     steps:
+     - uses: actions/checkout@v2
+
+      - name: Prepare
+        id: prep
+        run: |
+          TAG=$(echo $GITHUB_SHA | head -c7)
+          IMAGE=ghcr.io/romanychev-l/task_list_bot/bot_app
+          echo "::add-mask::${IMAGE}:${TAG}"
+          echo ::set-output name=tagged_image::${IMAGE}:${TAG}
+
+     - name: Create prod envfile
+       env:
+         PROD_ENVFILE: ${{ secrets.PROD_ENVFILE }}
+       run: |
+         echo "$PROD_ENVFILE" > .env.prod
+
+     - name: Login to Container Registry
+       run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
+
+     - name: Deploy app
+       env:
+         IMAGE_NAME: ${{ steps.prep_app.outputs.tagged_image }}
+       run: docker stack deploy --with-registry-auth -c docker-compose.prod.yml fullstats-api

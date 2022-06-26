@@ -2,3 +2,5 @@ config.py
 members.txt
 keyb.txt
 __pycache__/
+.idea
+*.env
