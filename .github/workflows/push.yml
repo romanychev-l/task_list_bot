@@ -40,10 +40,6 @@ jobs:
         restore-keys: |
           bot-app-buildx
 
-    - name: Create local.env file
-      run: |
-        cp .env.ci src/app/settings/.env
-
     - name: Build docker image
       uses: docker/build-push-action@v2
       with:

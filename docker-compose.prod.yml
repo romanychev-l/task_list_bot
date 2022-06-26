@@ -5,10 +5,7 @@ services:
     image: $IMAGE_NAME
     hostname: "{{.Service.Name}}-{{.Task.Slot}}"
     env_file:
-      - local.env.prod
-    networks:
-      - fullstats-network
-      - traefik-public
+      - .env.prod
     deploy:
       mode: replicated
       replicas: 1
