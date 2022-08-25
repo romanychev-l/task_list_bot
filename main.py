@@ -16,15 +16,18 @@ WEBAPP_PORT = 7771
 bot = Bot(token=config.token)
 dp = Dispatcher(bot)
 
-#channel_id = -1001381328759
-channel_id = -1001422711251
+channel_id = -1001381328759
+#channel_id = -1001422711251
 #channel_id = -1001380279825
 my_id = 248603604
 id_dict = {
     248603604: -1001381328759,
+    1037814936: -1001326413554,
     # test
     #248603604: -1001422711251,
-    363513023: -1001510058413
+    363513023: -1001510058413,
+    233305672: -1001791613421,
+    1317090820: -1001601747745
 }
 
 f = open(r'keyb.txt', 'rb')
@@ -89,6 +92,11 @@ async def reg_fun(msg):
     await bot.send_message(msg['chat']['id'], 'Вы успешно зарегистрированы!')
 
 
+@dp.message_handler(commands=['start'])
+async def st(msg):
+    print(msg)
+
+
 @dp.message_handler(commands=['finish'])
 async def unreg_fun(msg):
     data = get_data()
@@ -121,9 +129,12 @@ async def get_winner(msg):
 
     elif msg['text'] == 'Выбрать победителя':
         chat_id = msg['chat']['id']
+        print(chat_id)
         if chat_id != my_id and chat_id != channel_id:
             return
+
         data = get_data()
+        print(data)
         n = len(data)
         await bot.send_message(my_id, 'Всего участников ' + str(n))
         if n == 0:
