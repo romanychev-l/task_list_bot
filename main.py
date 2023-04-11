@@ -1,12 +1,18 @@
 import config
+import messages
 import random
 import pickle
+import os
+import time
+import asyncio
+from multiprocessing import Process
+
 
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.utils.executor import start_webhook
 
 
-WEBHOOK_HOST = 'https://lenichev.ru'
+WEBHOOK_HOST = 'https://pmpu.site'
 WEBHOOK_PATH = '/tasks/'
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
@@ -17,10 +23,13 @@ bot = Bot(token=config.token)
 dp = Dispatcher(bot)
 
 channel_id = -1001381328759
-#channel_id = -1001422711251
-#channel_id = -1001380279825
 my_id = 248603604
-id_dict = {
+
+file_id = 'file_id'
+file_callback = 'file_callback'
+file_statistics = 'statistics'
+
+id_map = {
     248603604: -1001381328759,
     1037814936: -1001326413554,
     # test
@@ -29,10 +38,9 @@ id_dict = {
     233305672: -1001791613421,
     1317090820: -1001601747745
 }
-
-f = open(r'keyb.txt', 'rb')
-keyb = pickle.load(f)
-f.close()
+callback_data = {}
+last_time = {}
+statistics = {}
 
 OK = '✅'
 NOK = '❌'
@@ -52,133 +60,335 @@ def put_string(s):
     return a
 
 
-def get_data():
-    f = open('members.txt')
-    data = []
-    for line in f:
-        data.append(line[:-1])
+def read_data(fi):
+    with open(fi, 'rb') as f:
+        data_new = pickle.load(f)
 
-    f.close()
-    return data
+    return data_new
 
 
-def update_data(data):
-    f = open('members.txt', 'w')
-    for val in data:
-        f.write(val + '\n')
-
-    f.close()
+def write_data(data, name_file):
+    with open(name_file, 'wb') as f:
+        pickle.dump(data, f)
 
 
-def up_keyb():
-    f = open(r'keyb.txt', 'wb')
-    pickle.dump(keyb, f)
-    f.close()
-
-
-@dp.message_handler(commands=['enter'])
-async def reg_fun(msg):
-    if(not 'username' in msg['chat']):
-        await bot.send_message(msg['chat']['id'], 'Я не вижу ваш ник - откройте доступ в настройках и повторите команду')
-        return
-    username = msg['chat']['username']
-    data = get_data()
-    if username in data:
-        await bot.send_message(msg['chat']['id'], 'Вы уже участвуете!')
-        return
-
-    data.append(username)
-    update_data(data)
-    await bot.send_message(msg['chat']['id'], 'Вы успешно зарегистрированы!')
+def check_data(obj, name_file, empty=False):
+    if not os.path.isfile(name_file) or empty:
+        write_data(obj, name_file)
+        return obj
+    else:
+        return read_data(name_file)
 
 
 @dp.message_handler(commands=['start'])
 async def st(msg):
+    print('start')
     print(msg)
 
+    await msg.answer(messages.start)
 
-@dp.message_handler(commands=['finish'])
-async def unreg_fun(msg):
-    data = get_data()
-    username = msg['chat']['username']
-    if username in data:
-        data.remove(username)
-        update_data(data)
-        await bot.send_message(msg['chat']['id'], 'Вы отписались от игры!')
-    else:
-        await bot.send_message(msg['chat']['id'], 'Вы еще не зарегистированы')
+
+@dp.message_handler(commands=['show_dev'])
+async def st(msg):
+    global statistics
+    print('show_dev')
+    print(msg)
+
+    await msg.answer(str(statistics))
+
+
+'''
+@dp.message_handler(commands=['show'])
+async def show(msg):
+    return
+    print(msg)
+    global statistics
+
+    channel_username = msg.message.sender_chat.title
+    if msg.message.sender_chat.username != None:
+        channel_username = msg.message.sender_chat.username
+
+    person = statistics[channel_username]['person']
+    general = statistics[channel_username]['general']
+    text = ('Ты сделал ' + str(person) + ' дел\n' +
+            'Твои подписчики сделали ' + str(general) + ' дел\n' +
+            'Всего ' + str(person + general))
+
+    await msg.answer(text)
+'''
+
+@dp.message_handler(commands=['show_all'])
+async def show_all(msg):
+    global statistics
+    print(statistics)
+
+    if not msg.from_user.id in id_map.keys():
+        await msg.answer('Вы не ведете свой канал и не можете просматривать статистику')
+        return
+
+    all_person = 0
+    all_general = 0
+    text = ''
+    for item in statistics.keys():
+        person = statistics[item]['person']
+        general = statistics[item]['general']
+        all_person += person
+        all_general += general
+
+        text = (text + '@' + item + '\n' +
+                'Пользователь ' + str(person) + '\n' +
+                'Подписчики ' + str(general) + '\n\n')
+
+    text = text + 'Все пользователи ' + str(all_person) + '\n' + 'Все подписчики ' + str(all_general)
+    await msg.answer(text)
+
+
+def validate_forwarded_msg_type(msg):
+    return (msg.forward_from_chat != None and
+            msg.forward_from_chat.type != None and
+            msg.forward_from_chat.type == 'channel')
 
 
 @dp.channel_post_handler(content_types=["text"])
-async def get_winner(msg):
-    print('msg', msg)
+async def write_plan(msg):
+    print(msg)
+    global callback_data
+    global file_callback
+
+    # callback_data = read_data(file_callback)
+
     if msg.text[:4] == 'План':
         try:
-            a = put_string(msg.text[6:])
+            callback_data[msg.message_id] = {}
+            points = put_string(msg.text[6:])
 
             key = types.InlineKeyboardMarkup()
-            for i in range(0, len(a)):
-                but = types.InlineKeyboardButton(text=NOK + ' ' + a[i],
+            for i in range(0, len(points)):
+                callback_data[msg.message_id][i] = []
+
+                but = types.InlineKeyboardButton(text=NOK + ' ' + points[i],
                     callback_data=str(i+1))
                 key.add(but)
 
-            await bot.edit_message_text(chat_id=msg['chat']['id'],
-                message_id=msg['message_id'], text='План:', reply_markup=key)
+            await bot.edit_message_text(chat_id=msg.chat.id,
+                message_id=msg.message_id, text='План:', reply_markup=key)
         except Exception as e:
-            await bot.send_message(msg['chat']['id'], 'Неверный формат')
+            print(e)
+            await bot.send_message(msg.chat.id, messages.wrong_format)
 
-    elif msg['text'] == 'Выбрать победителя':
-        chat_id = msg['chat']['id']
-        print(chat_id)
-        if chat_id != my_id and chat_id != channel_id:
-            return
+    write_data(callback_data, file_callback)
 
-        data = get_data()
-        print(data)
-        n = len(data)
-        await bot.send_message(my_id, 'Всего участников ' + str(n))
-        if n == 0:
-            return
-        k = random.randint(0, n-1)
-        await bot.send_message(channel_id, 'Сегодня выиграл:\n@' + data[k] + '\n' +\
-        'Чтобы участвовать в розыгрыше запусти бота @romanychev_bot')
+def add_pros(text, pros):
+    if text[-1] == ')':
+        text = ' '.join(text.split()[:-1])
+
+    if pros > 0:
+        text = text + ' (+' + str(pros) + ')'
+
+    return text
 
 
 @dp.callback_query_handler(lambda c:True)
-async def inline(c):
-    global keyb
-    keyb = c['message']['reply_markup']
+async def inline(call):
+    print(call)
 
-    if not c['from']['id'] in id_dict.keys():
+    global file_id
+    global id_map
+    global file_callback
+    global callback_data
+    global file_callback
+    global file_statistics
+    global statistics
+
+    user_id = call['from']['id']
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    data = int(call.data)
+    point_index = abs(data) - 1
+
+    # id_map = read_data(file_id)
+
+    # callback_data = read_data(file_callback)
+    # statistics = read_data(file_statistics)
+
+    if not message_id in callback_data:
+        await call.answer(text=messages.past_day, show_alert=True)
         return
 
-    d = int(c.data)
-    if d > 0:
-        but = types.InlineKeyboardButton(text=NOK, callback_data=str(-1*d))
+    if user_id in id_map.keys() and chat_id == id_map[user_id]:
+        pass
     else:
-        but = types.InlineKeyboardButton(text=OK, callback_data=str(-1*d))
-    n = len(keyb['inline_keyboard'])
-    for i in range(n):
-        if keyb['inline_keyboard'][i][0]['callback_data'] == str(d):
-            t = keyb['inline_keyboard'][i][0]['text'][2:]
-            if d > 0:
-                but = types.InlineKeyboardButton(text=OK + ' ' + t, callback_data=str(-1*d))
+        time_now = int(time.time())
+        if not user_id in last_time.keys():
+            last_time[user_id] = {point_index: time_now}
+
+        elif not point_index in last_time[user_id].keys():
+            last_time[user_id][point_index] = time_now
+
+        else:
+            time_delta_admin = 30
+            time_delta_user = time_now - last_time[user_id][point_index]
+            if time_delta_user < time_delta_admin:
+                await call.answer(
+                    text=messages.wait + str(time_delta_admin - time_delta_user) + ' сек.',
+                    show_alert=True)
+                return
             else:
-                but = types.InlineKeyboardButton(text=NOK + ' ' + t, callback_data=str(-1*d))
+                last_time[user_id][point_index] = time_now
 
-            keyb['inline_keyboard'][i][0] = but
+    action_general = 1
+    action_personal = 0
+    if user_id in callback_data[message_id][point_index]:
+        callback_data[message_id][point_index].remove(user_id)
+        action_general = -1
+    else:
+        callback_data[message_id][point_index].append(user_id)
+    
+    count_pros = len(callback_data[message_id][point_index])
 
-    await bot.edit_message_reply_markup(chat_id=c['message']['chat']['id'],
-        message_id=c.message.message_id, reply_markup=keyb)
+    #if call.message.sender_chat.username != None:
+    #    await bot.send_message(my_id, '@' + call.message.sender_chat.username)
+
+    keyb = call['message']['reply_markup']
+    text_button = keyb['inline_keyboard'][point_index][0]['text']
+
+    prefix = text_button[:2]
+    new_data = str(data)
+
+    if user_id in id_map.keys() and chat_id == id_map[user_id]:
+        action_general = 0
+        new_data = str(-data)
+        if data > 0:
+            prefix = OK + ' '
+            action_personal = 1
+        else:
+            prefix = NOK + ' '
+            action_personal = -1
+
+    if prefix[0] == OK:
+        count_pros -= 1
+    new_text = add_pros(text_button[2:], count_pros)
+
+    keyb['inline_keyboard'][point_index][0] = types.InlineKeyboardButton(
+        text=prefix + new_text, callback_data=new_data)
+
+    user_username = call.from_user.first_name
+    if call.from_user.username != None:
+        user_username = '@' + call.from_user.username
+
+    channel_username = call.message.sender_chat.title
+    if call.message.sender_chat.username != None:
+        channel_username = call.message.sender_chat.username
+
+    if channel_username in statistics.keys():
+        action_general += statistics[channel_username]['general']
+        action_personal += statistics[channel_username]['person']
+
+    statistics[channel_username] = {'general': action_general,
+                                        'person': action_personal}
+
+    await bot.send_message(my_id,
+        user_username + ' in @' + channel_username + '\n' + text_button)
+
+    await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id,
+        reply_markup=keyb)
+
+    write_data(callback_data, file_callback)
+    write_data(statistics, file_statistics)
+
+
+@dp.message_handler()
+async def forwarded_msg(msg):
+    print(msg)
+    if not validate_forwarded_msg_type(msg):
+        await msg.answer(messages.forward)
+        return
+
+    user_id = msg.from_user.id
+    channel_id = msg.forward_from_chat.id
+    id_map[user_id] = channel_id
+    write_data(id_map, file_id)
+
+    await msg.answer(messages.success)
+
+
+async def run_bot():
+    print('run bot')
+    time.sleep(5)
+    start_webhook(
+            dispatcher=dp,
+            webhook_path=WEBHOOK_PATH,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+            skip_updates=True,
+            host=WEBAPP_HOST,
+            port=WEBAPP_PORT,
+        )
+
+
+async def run_save_loop():
+    print('run save loop')
+    global file_id
+    global id_map
+    global file_callback
+    global callback_data
+    global file_callback
+    global file_statistics
+    global statistics
+
+    id_map = check_data(id_map, file_id)
+    callback_data = check_data(callback_data, file_callback)
+    statistics = check_data(statistics, file_statistics)
+    print('read data')
+    print(str(statistics))
+
+    while True:
+
+        await asyncio.sleep(3600)
+
+        print('New save iter')
+        write_data(id_map, file_id)
+        write_data(statistics, file_statistics)
+        write_data(callback_data, file_callback)
+        
+
+
+def main():
+    global file_id
+    global id_map
+    global file_callback
+    global callback_data
+    global file_callback
+    global file_statistics
+    global statistics
+
+    id_map = check_data(id_map, file_id)
+    callback_data = check_data(callback_data, file_callback)
+    statistics = check_data(statistics, file_statistics)
+
+    start_webhook(
+            dispatcher=dp,
+            webhook_path=WEBHOOK_PATH,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+            skip_updates=True,
+            host=WEBAPP_HOST,
+            port=WEBAPP_PORT,
+        )
+    # tasks = [asyncio.create_task(run_bot()), asyncio.create_task(run_save_loop())]
+
+    # await asyncio.gather(*tasks)
+
+    # await run_save_loop()
+    # await run_bot()
+    # pass
+    # run_save_loop())
 
 
 if __name__ == '__main__':
-    start_webhook(
-        dispatcher=dp,
-        webhook_path=WEBHOOK_PATH,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        skip_updates=True,
-        host=WEBAPP_HOST,
-        port=WEBAPP_PORT,
-    )
+    # pr1 = Process(target=main)
+    # pr2 = Process(target=run_bot)
+
+    # pr1.start()
+    # pr2.start()
+    asyncio.run(main())
