@@ -8,21 +8,20 @@ import pymongo
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.utils.executor import start_webhook
 
-'''
 WEBHOOK_HOST = 'https://pmpu.site'
 WEBHOOK_PATH = '/tasks/'
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 WEBAPP_HOST = '127.0.0.1'
 WEBAPP_PORT = 7771
-'''
+
 mongo_client = pymongo.MongoClient("mongodb://localhost:27017/")
 mongo_db = mongo_client["task-list-bot-DB"]
 
-mongo_callback_data = mongo_db["callback_data"]
-mongo_id = mongo_db["id"]
-mongo_statistics = mongo_db["statistics"]
-mongo_last_time = mongo_db["last_time"]
+mongo_callback_data = mongo_db["callback_data"]  # channel_username, message_id, список users нажавших на каждое дело
+mongo_id = mongo_db["id"]  # user_id, channel_id
+mongo_statistics = mongo_db["statistics"]  # channel_username, person, general
+mongo_last_time = mongo_db["last_time"]  # user_id, список point_ind, список time_now
 
 bot = Bot(token=config.token)
 dp = Dispatcher(bot)
@@ -64,14 +63,14 @@ def add_pros(text, pros):
 
 
 @dp.message_handler(commands=['start'])
-async def st(msg):
+async def start(msg):
     print('start')
     print(msg)
     await msg.answer(messages.start)
 
 
 @dp.message_handler(commands=['show_dev'])
-async def st(msg):
+async def show_dev(msg):
     print('show_dev')
     print(msg)
     for x in mongo_statistics.find({}, {'_id': 0}):
@@ -163,7 +162,7 @@ async def inline(call):
 
     print("tapped button  \n", call, "\n")
 
-    user_id = call['from']['id']
+    user_id = call.from_user.id
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     channel_username = call.message.sender_chat.username
@@ -187,7 +186,7 @@ async def inline(call):
             break
 
     keyb = call['message']['reply_markup']
-    text_button = keyb['inline_keyboard'][point_index-1][0]['text']
+    text_button = keyb['inline_keyboard'][point_index - 1][0]['text']
 
     prefix = text_button[:2]
     new_data = str(data)
@@ -213,8 +212,7 @@ async def inline(call):
             data_tn = find_last_time['time_now']
             data_pi.append(point_index)
             data_tn.append(time_now)
-            mongo_last_time.update_one({'user_id': user_id}, {'$set': {"point_ind": data_pi}})
-            mongo_last_time.update_one({'user_id': user_id}, {'$set': {"time_now": data_tn}})
+            mongo_last_time.update_one({'user_id': user_id}, {'$set': {"point_ind": data_pi, "time_now": data_tn}})
 
         # юзер есть в БД и он нажал на кнопку point_ind, которая есть в БД - проверяем 30 сек. с последнего нажатия
         # или обновляем время time_now в БД
@@ -237,7 +235,7 @@ async def inline(call):
     action_general = find_statistics['general']
 
     data_cb = find_callback['users']  # массив массивов пользователей по кнопкам
-    data_cu = data_cb[point_index-1]  # массив пользователей, нажавших на кнопку point_ind
+    data_cu = data_cb[point_index - 1]  # массив пользователей, нажавших на кнопку point_ind
     if user_id in data_cu:
         data_cu.remove(user_id)
         action_general -= 1
@@ -249,28 +247,31 @@ async def inline(call):
         if flag == 1:
             action_personal += 1
 
-    data_cb[point_index-1] = data_cu
+    data_cb[point_index - 1] = data_cu
     mongo_callback_data.update_one({'message_id': message_id}, {"$set": {'users': data_cb}})
-    mongo_statistics.update_one({"channel_username": channel_username}, {"$set": {"person": action_personal}})
-    mongo_statistics.update_one({"channel_username": channel_username}, {"$set": {"general": action_general}})
+    mongo_statistics.update_one({"channel_username": channel_username}, {"$set": {"person": action_personal,
+                                                                                  "general": action_general}})
 
     count_pros = len(data_cu)
     if prefix[0] == OK:
         count_pros -= 1
     new_text = add_pros(text_button[2:], count_pros)
 
-    keyb['inline_keyboard'][point_index-1][0] = types.InlineKeyboardButton(
+    keyb['inline_keyboard'][point_index - 1][0] = types.InlineKeyboardButton(
         text=prefix + new_text, callback_data=new_data)
 
     if call.from_user.username is not None:
         user_username = '@' + call.from_user.username
+
+    if channel_username is None:
+        channel_username = call.message.sender_chat.title
 
     await bot.send_message(my_id, user_username + ' in @' + channel_username + '\n' + text_button)
 
     await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=keyb)
 
 
-@dp.message_handler()
+@dp.message_handler() #!!!!!!!
 async def forwarded_msg(msg):
     """Вызывается при пересылке сообщения из ТГ канала в бота для его настройки
        Добавляет в БД соответствующие документы в коллекции id и statistics"""
@@ -296,10 +297,8 @@ async def forwarded_msg(msg):
     await msg.answer(messages.success)
 
 
-async def run_bot():
-    print('run bot')
-    time.sleep(5)
-    '''
+async def run_bot_with_webhook():
+    print('run bot with webhook')
     start_webhook(
             dispatcher=dp,
             webhook_path=WEBHOOK_PATH,
@@ -308,27 +307,20 @@ async def run_bot():
             skip_updates=True,
             host=WEBAPP_HOST,
             port=WEBAPP_PORT,
-        )'''
+        )
+
+
+async def run_bot_with_polling(on=False):
+    """Вызывайте с оn=True, если запускаете бота для локального тестирования в первый раз"""
+
+    print('run bot with polling')
+    if on:
+        on_shutdown(dp)
+    executor.start_polling(dp, skip_updates=True)
 
 
 def main():
-    # on_shutdown(dp)
-    executor.start_polling(dp, skip_updates=True)
-    '''
-    start_webhook(
-            dispatcher=dp,
-            webhook_path=WEBHOOK_PATH,
-            on_startup=on_startup,
-            on_shutdown=on_shutdown,
-            skip_updates=True,
-            host=WEBAPP_HOST,
-            port=WEBAPP_PORT,
-        )'''
-
-    # tasks = [asyncio.create_task(run_bot())]
-    # await asyncio.gather(*tasks)
-    # await run_bot()
-    # pass
+    run_bot_with_polling()
 
 
 if __name__ == '__main__':
