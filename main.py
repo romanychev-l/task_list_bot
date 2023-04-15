@@ -271,7 +271,7 @@ async def inline(call):
     await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=keyb)
 
 
-@dp.message_handler() #!!!!!!!
+@dp.message_handler()
 async def forwarded_msg(msg):
     """Вызывается при пересылке сообщения из ТГ канала в бота для его настройки
        Добавляет в БД соответствующие документы в коллекции id и statistics"""
@@ -320,7 +320,8 @@ async def run_bot_with_polling(on=False):
 
 
 def main():
-    run_bot_with_polling()
+    #run_bot_with_polling()
+    run_bot_with_webhook()
 
 
 if __name__ == '__main__':
