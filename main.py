@@ -1,46 +1,34 @@
 import config
 import messages
-import random
-import pickle
-import os
 import time
 import asyncio
 from multiprocessing import Process
-
+import pymongo
 
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.utils.executor import start_webhook
 
-
+'''
 WEBHOOK_HOST = 'https://pmpu.site'
 WEBHOOK_PATH = '/tasks/'
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 WEBAPP_HOST = '127.0.0.1'
 WEBAPP_PORT = 7771
+'''
+mongo_client = pymongo.MongoClient("mongodb://localhost:27017/")
+mongo_db = mongo_client["task-list-bot-DB"]
+
+mongo_callback_data = mongo_db["callback_data"]
+mongo_id = mongo_db["id"]
+mongo_statistics = mongo_db["statistics"]
+mongo_last_time = mongo_db["last_time"]
 
 bot = Bot(token=config.token)
 dp = Dispatcher(bot)
 
 channel_id = -1001381328759
 my_id = 248603604
-
-file_id = 'file_id'
-file_callback = 'file_callback'
-file_statistics = 'statistics'
-
-id_map = {
-    248603604: -1001381328759,
-    1037814936: -1001326413554,
-    # test
-    #248603604: -1001422711251,
-    363513023: -1001510058413,
-    233305672: -1001791613421,
-    1317090820: -1001601747745
-}
-callback_data = {}
-last_time = {}
-statistics = {}
 
 OK = '✅'
 NOK = '❌'
@@ -56,45 +44,39 @@ async def on_shutdown(dp):
 
 def put_string(s):
     a = s.split('\n')
-    a = [ str(i + 1) + '. ' + a[i] for i in range(0, len(a))]
+    a = [str(i + 1) + '. ' + a[i] for i in range(0, len(a))]
     return a
 
 
-def read_data(fi):
-    with open(fi, 'rb') as f:
-        data_new = pickle.load(f)
-
-    return data_new
-
-
-def write_data(data, name_file):
-    with open(name_file, 'wb') as f:
-        pickle.dump(data, f)
+def validate_forwarded_msg_type(msg):
+    return (msg.forward_from_chat is not None and
+            msg.forward_from_chat.type is not None and
+            msg.forward_from_chat.type == 'channel')
 
 
-def check_data(obj, name_file, empty=False):
-    if not os.path.isfile(name_file) or empty:
-        write_data(obj, name_file)
-        return obj
-    else:
-        return read_data(name_file)
+def add_pros(text, pros):
+    if text[-1] == ')':
+        text = ' '.join(text.split()[:-1])
+    if pros > 0:
+        text = text + ' (+' + str(pros) + ')'
+
+    return text
 
 
 @dp.message_handler(commands=['start'])
 async def st(msg):
     print('start')
     print(msg)
-
     await msg.answer(messages.start)
 
 
 @dp.message_handler(commands=['show_dev'])
 async def st(msg):
-    global statistics
     print('show_dev')
     print(msg)
-
-    await msg.answer(str(statistics))
+    for x in mongo_statistics.find({}, {'_id': 0}):
+        print(x)
+        await msg.answer(x)
 
 
 '''
@@ -102,7 +84,6 @@ async def st(msg):
 async def show(msg):
     return
     print(msg)
-    global statistics
 
     channel_username = msg.message.sender_chat.title
     if msg.message.sender_chat.username != None:
@@ -117,25 +98,25 @@ async def show(msg):
     await msg.answer(text)
 '''
 
+
 @dp.message_handler(commands=['show_all'])
 async def show_all(msg):
-    global statistics
-    print(statistics)
+    """Вызывается для просмотра статистики по кол-ву сделанных дел"""
 
-    if not msg.from_user.id in id_map.keys():
-        await msg.answer('Вы не ведете свой канал и не можете просматривать статистику')
+    if mongo_id.find_one({'user_id': msg.from_user.id}) is None:
+        await msg.answer(messages.no_channel)
         return
 
     all_person = 0
     all_general = 0
     text = ''
-    for item in statistics.keys():
-        person = statistics[item]['person']
-        general = statistics[item]['general']
-        all_person += person
-        all_general += general
+    for item in mongo_statistics.find():
+        person = item['person']
+        general = item['general']
+        all_person += int(person)
+        all_general += int(general)
 
-        text = (text + '@' + item + '\n' +
+        text = (text + '@' + item['channel_username'] + '\n' +
                 'Пользователь ' + str(person) + '\n' +
                 'Подписчики ' + str(general) + '\n\n')
 
@@ -143,171 +124,174 @@ async def show_all(msg):
     await msg.answer(text)
 
 
-def validate_forwarded_msg_type(msg):
-    return (msg.forward_from_chat != None and
-            msg.forward_from_chat.type != None and
-            msg.forward_from_chat.type == 'channel')
-
-
 @dp.channel_post_handler(content_types=["text"])
 async def write_plan(msg):
-    print(msg)
-    global callback_data
-    global file_callback
+    """ Вызывается при добавлении Плана в ТГ канал
+        Добавляет соответствующий документ в БД в коллекцию callback_data"""
 
-    # callback_data = read_data(file_callback)
+    print('added new plan \n', msg, "\n")
+    channel_username = msg.chat.username
 
     if msg.text[:4] == 'План':
         try:
-            callback_data[msg.message_id] = {}
+            data = {'channel_username': channel_username, 'message_id': msg.message_id, 'users': []}
             points = put_string(msg.text[6:])
 
             key = types.InlineKeyboardMarkup()
             for i in range(0, len(points)):
-                callback_data[msg.message_id][i] = []
+                data['users'].append([])
 
                 but = types.InlineKeyboardButton(text=NOK + ' ' + points[i],
-                    callback_data=str(i+1))
+                                                 callback_data=str(i + 1))
                 key.add(but)
 
             await bot.edit_message_text(chat_id=msg.chat.id,
-                message_id=msg.message_id, text='План:', reply_markup=key)
+                                        message_id=msg.message_id,
+                                        text='План:',
+                                        reply_markup=key)
+
+            mongo_callback_data.insert_one(data)
+
         except Exception as e:
             print(e)
             await bot.send_message(msg.chat.id, messages.wrong_format)
 
-    write_data(callback_data, file_callback)
 
-def add_pros(text, pros):
-    if text[-1] == ')':
-        text = ' '.join(text.split()[:-1])
-
-    if pros > 0:
-        text = text + ' (+' + str(pros) + ')'
-
-    return text
-
-
-@dp.callback_query_handler(lambda c:True)
+@dp.callback_query_handler(lambda c: True)
 async def inline(call):
-    print(call)
+    """ Реализована логика нажатия на кнопки с делами и подсчета сделанных дел"""
 
-    global file_id
-    global id_map
-    global file_callback
-    global callback_data
-    global file_callback
-    global file_statistics
-    global statistics
+    print("tapped button  \n", call, "\n")
 
     user_id = call['from']['id']
     chat_id = call.message.chat.id
     message_id = call.message.message_id
+    channel_username = call.message.sender_chat.username
+    user_username = call.from_user.first_name
     data = int(call.data)
-    point_index = abs(data) - 1
+    point_index = abs(data)
 
-    # id_map = read_data(file_id)
+    find_last_time = mongo_last_time.find_one({"user_id": user_id})
+    find_callback = mongo_callback_data.find_one({"message_id": message_id})
+    find_statistics = mongo_statistics.find_one({"channel_username": channel_username})
 
-    # callback_data = read_data(file_callback)
-    # statistics = read_data(file_statistics)
-
-    if not message_id in callback_data:
+    if find_callback is None:
         await call.answer(text=messages.past_day, show_alert=True)
         return
 
-    if user_id in id_map.keys() and chat_id == id_map[user_id]:
-        pass
+    # проверяем является ли юзер, тыкающий на кнопку владельцем канала
+    flag = 0
+    for x in mongo_id.find({"user_id": user_id}):  # у пользователя, нажавшего на кнопку есть канал, подкл к боту
+        if x['channel_id'] == chat_id:  # пользователь нажал кнопку в своем канале с channel_id = chat_id
+            flag = 1
+            break
+
+    keyb = call['message']['reply_markup']
+    text_button = keyb['inline_keyboard'][point_index-1][0]['text']
+
+    prefix = text_button[:2]
+    new_data = str(data)
+
+    # логика возможности нажать на кнопку
+    if flag == 1:
+        new_data = str(-data)
+        if data > 0:
+            prefix = OK + ' '
+        else:
+            prefix = NOK + ' '
     else:
         time_now = int(time.time())
-        if not user_id in last_time.keys():
-            last_time[user_id] = {point_index: time_now}
 
-        elif not point_index in last_time[user_id].keys():
-            last_time[user_id][point_index] = time_now
+        # юзера нет в БД last_time - добавляем юзера в БД
+        if find_last_time is None:
+            data_lt = {'user_id': user_id, 'point_ind': [point_index], 'time_now': [time_now]}
+            mongo_last_time.insert_one(data_lt)
 
+        # юзер есть в БД и он нажал на кнопку point_ind, которой нет в БД - добавляем кнопку в БД к этому юзеру
+        elif point_index not in find_last_time['point_ind']:
+            data_pi = find_last_time['point_ind']
+            data_tn = find_last_time['time_now']
+            data_pi.append(point_index)
+            data_tn.append(time_now)
+            mongo_last_time.update_one({'user_id': user_id}, {'$set': {"point_ind": data_pi}})
+            mongo_last_time.update_one({'user_id': user_id}, {'$set': {"time_now": data_tn}})
+
+        # юзер есть в БД и он нажал на кнопку point_ind, которая есть в БД - проверяем 30 сек. с последнего нажатия
+        # или обновляем время time_now в БД
         else:
             time_delta_admin = 30
-            time_delta_user = time_now - last_time[user_id][point_index]
+            ind = find_last_time['point_ind'].index(point_index)
+            time_delta_user = time_now - find_last_time['time_now'][ind]  # last_time[user_id][point_index]
             if time_delta_user < time_delta_admin:
                 await call.answer(
                     text=messages.wait + str(time_delta_admin - time_delta_user) + ' сек.',
                     show_alert=True)
                 return
             else:
-                last_time[user_id][point_index] = time_now
+                data_tn = find_last_time['time_now']
+                data_tn[ind] = time_now
+                mongo_last_time.update_one({"user_id": user_id}, {"$set": {"time_now": data_tn}})
 
-    action_general = 1
-    action_personal = 0
-    if user_id in callback_data[message_id][point_index]:
-        callback_data[message_id][point_index].remove(user_id)
-        action_general = -1
+    # логика подсчета дел, сделанных пользователями
+    action_personal = find_statistics['person']
+    action_general = find_statistics['general']
+
+    data_cb = find_callback['users']  # массив массивов пользователей по кнопкам
+    data_cu = data_cb[point_index-1]  # массив пользователей, нажавших на кнопку point_ind
+    if user_id in data_cu:
+        data_cu.remove(user_id)
+        action_general -= 1
+        if flag == 1:
+            action_personal -= 1
     else:
-        callback_data[message_id][point_index].append(user_id)
-    
-    count_pros = len(callback_data[message_id][point_index])
+        data_cu.append(user_id)
+        action_general += 1
+        if flag == 1:
+            action_personal += 1
 
-    #if call.message.sender_chat.username != None:
-    #    await bot.send_message(my_id, '@' + call.message.sender_chat.username)
+    data_cb[point_index-1] = data_cu
+    mongo_callback_data.update_one({'message_id': message_id}, {"$set": {'users': data_cb}})
+    mongo_statistics.update_one({"channel_username": channel_username}, {"$set": {"person": action_personal}})
+    mongo_statistics.update_one({"channel_username": channel_username}, {"$set": {"general": action_general}})
 
-    keyb = call['message']['reply_markup']
-    text_button = keyb['inline_keyboard'][point_index][0]['text']
-
-    prefix = text_button[:2]
-    new_data = str(data)
-
-    if user_id in id_map.keys() and chat_id == id_map[user_id]:
-        action_general = 0
-        new_data = str(-data)
-        if data > 0:
-            prefix = OK + ' '
-            action_personal = 1
-        else:
-            prefix = NOK + ' '
-            action_personal = -1
-
+    count_pros = len(data_cu)
     if prefix[0] == OK:
         count_pros -= 1
     new_text = add_pros(text_button[2:], count_pros)
 
-    keyb['inline_keyboard'][point_index][0] = types.InlineKeyboardButton(
+    keyb['inline_keyboard'][point_index-1][0] = types.InlineKeyboardButton(
         text=prefix + new_text, callback_data=new_data)
 
-    user_username = call.from_user.first_name
-    if call.from_user.username != None:
+    if call.from_user.username is not None:
         user_username = '@' + call.from_user.username
 
-    channel_username = call.message.sender_chat.title
-    if call.message.sender_chat.username != None:
-        channel_username = call.message.sender_chat.username
+    await bot.send_message(my_id, user_username + ' in @' + channel_username + '\n' + text_button)
 
-    if channel_username in statistics.keys():
-        action_general += statistics[channel_username]['general']
-        action_personal += statistics[channel_username]['person']
-
-    statistics[channel_username] = {'general': action_general,
-                                        'person': action_personal}
-
-    await bot.send_message(my_id,
-        user_username + ' in @' + channel_username + '\n' + text_button)
-
-    await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id,
-        reply_markup=keyb)
-
-    write_data(callback_data, file_callback)
-    write_data(statistics, file_statistics)
+    await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=keyb)
 
 
 @dp.message_handler()
 async def forwarded_msg(msg):
-    print(msg)
+    """Вызывается при пересылке сообщения из ТГ канала в бота для его настройки
+       Добавляет в БД соответствующие документы в коллекции id и statistics"""
+
+    print("new user\n", msg, "\n")
     if not validate_forwarded_msg_type(msg):
         await msg.answer(messages.forward)
         return
 
     user_id = msg.from_user.id
     channel_id = msg.forward_from_chat.id
-    id_map[user_id] = channel_id
-    write_data(id_map, file_id)
+    channel_username = msg.forward_from_chat.username
+
+    data_id = {"user_id": user_id, "channel_id": channel_id}
+    data_stat = {'channel_username': channel_username, 'person': 0, 'general': 0}
+
+    if mongo_id.find_one(data_id) is None:
+        mongo_id.insert_one(data_id)
+
+    if mongo_statistics.find_one({'channel_username': channel_username}) is None:
+        mongo_statistics.insert_one(data_stat)
 
     await msg.answer(messages.success)
 
@@ -315,6 +299,7 @@ async def forwarded_msg(msg):
 async def run_bot():
     print('run bot')
     time.sleep(5)
+    '''
     start_webhook(
             dispatcher=dp,
             webhook_path=WEBHOOK_PATH,
@@ -323,49 +308,13 @@ async def run_bot():
             skip_updates=True,
             host=WEBAPP_HOST,
             port=WEBAPP_PORT,
-        )
-
-
-async def run_save_loop():
-    print('run save loop')
-    global file_id
-    global id_map
-    global file_callback
-    global callback_data
-    global file_callback
-    global file_statistics
-    global statistics
-
-    id_map = check_data(id_map, file_id)
-    callback_data = check_data(callback_data, file_callback)
-    statistics = check_data(statistics, file_statistics)
-    print('read data')
-    print(str(statistics))
-
-    while True:
-
-        await asyncio.sleep(3600)
-
-        print('New save iter')
-        write_data(id_map, file_id)
-        write_data(statistics, file_statistics)
-        write_data(callback_data, file_callback)
-        
+        )'''
 
 
 def main():
-    global file_id
-    global id_map
-    global file_callback
-    global callback_data
-    global file_callback
-    global file_statistics
-    global statistics
-
-    id_map = check_data(id_map, file_id)
-    callback_data = check_data(callback_data, file_callback)
-    statistics = check_data(statistics, file_statistics)
-
+    # on_shutdown(dp)
+    executor.start_polling(dp, skip_updates=True)
+    '''
     start_webhook(
             dispatcher=dp,
             webhook_path=WEBHOOK_PATH,
@@ -374,15 +323,12 @@ def main():
             skip_updates=True,
             host=WEBAPP_HOST,
             port=WEBAPP_PORT,
-        )
-    # tasks = [asyncio.create_task(run_bot()), asyncio.create_task(run_save_loop())]
+        )'''
 
+    # tasks = [asyncio.create_task(run_bot())]
     # await asyncio.gather(*tasks)
-
-    # await run_save_loop()
     # await run_bot()
     # pass
-    # run_save_loop())
 
 
 if __name__ == '__main__':
