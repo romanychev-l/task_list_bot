@@ -184,6 +184,7 @@ async def inline(call): # !!!!!!11
         await call.answer(text=messages.past_day, show_alert=True)
         return
 
+    flag = 0
     # проверяем является ли юзер, тыкающий на кнопку владельцем канала
     for x in mongo_id.find({"user_id": user_id}):  # у пользователя, нажавшего на кнопку есть канал, подкл к боту
         if x['channel_id'] == chat_id:  # пользователь нажал кнопку в своем канале с channel_id = chat_id
@@ -196,7 +197,6 @@ async def inline(call): # !!!!!!11
     prefix = text_button[:2]
     new_data = str(data)
 
-    print(flag)
     # логика возможности нажать на кнопку
     if flag == 1:
         new_data = str(-data)
