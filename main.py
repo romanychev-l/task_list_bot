@@ -176,9 +176,6 @@ async def inline(call): # !!!!!!11
     data = int(call.data)
     point_index = abs(data)
 
-    if channel_username is None:
-        channel_username = call.message.sender_chat.title
-
     find_last_time = mongo_last_time.find_one({"user_id": user_id})
     find_callback = mongo_callback_data.find_one({"message_id": message_id})
     find_statistics = mongo_statistics.find_one({"channel_username": channel_username})
