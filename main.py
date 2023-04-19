@@ -130,6 +130,7 @@ async def write_plan(msg):
 
     print('added new plan \n', msg, "\n")
     channel_username = msg.chat.username
+
     if channel_username is None:
         channel_username = msg.sender_chat.title
 
@@ -168,6 +169,9 @@ async def inline(call): # !!!!!!11
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     channel_username = call.message.sender_chat.username
+    if channel_username == None:
+        channel_username = call.message.sender_chat.title
+
     user_username = call.from_user.first_name
     data = int(call.data)
     point_index = abs(data)
@@ -184,7 +188,6 @@ async def inline(call): # !!!!!!11
         return
 
     # проверяем является ли юзер, тыкающий на кнопку владельцем канала
-    flag = 0
     for x in mongo_id.find({"user_id": user_id}):  # у пользователя, нажавшего на кнопку есть канал, подкл к боту
         if x['channel_id'] == chat_id:  # пользователь нажал кнопку в своем канале с channel_id = chat_id
             flag = 1
@@ -196,6 +199,7 @@ async def inline(call): # !!!!!!11
     prefix = text_button[:2]
     new_data = str(data)
 
+    print(flag)
     # логика возможности нажать на кнопку
     if flag == 1:
         new_data = str(-data)
@@ -302,7 +306,7 @@ async def forwarded_msg(msg): # !!!!!!!!
     await msg.answer(messages.success)
 
 
-async def run_bot_with_webhook():
+def run_bot_with_webhook():
     print('run bot with webhook')
     start_webhook(
             dispatcher=dp,
@@ -315,7 +319,7 @@ async def run_bot_with_webhook():
         )
 
 
-async def run_bot_with_polling(on=False):
+def run_bot_with_polling(on=False):
     """Вызывайте с оn=True, если запускаете бота для локального тестирования в первый раз"""
 
     print('run bot with polling')
@@ -326,8 +330,7 @@ async def run_bot_with_polling(on=False):
 
 def main():
     #run_bot_with_polling()
-    #run_bot_with_webhook()
-    executor.start_polling(dp, skip_updates=True)
+    run_bot_with_webhook()
 
 
 if __name__ == '__main__':
