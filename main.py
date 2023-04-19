@@ -130,6 +130,8 @@ async def write_plan(msg):
 
     print('added new plan \n', msg, "\n")
     channel_username = msg.chat.username
+    if channel_username is None:
+        channel_username = msg.sender_chat.title
 
     if msg.text[:4] == 'План':
         try:
@@ -157,7 +159,7 @@ async def write_plan(msg):
 
 
 @dp.callback_query_handler(lambda c: True)
-async def inline(call):
+async def inline(call): # !!!!!!11
     """ Реализована логика нажатия на кнопки с делами и подсчета сделанных дел"""
 
     print("tapped button  \n", call, "\n")
@@ -169,6 +171,9 @@ async def inline(call):
     user_username = call.from_user.first_name
     data = int(call.data)
     point_index = abs(data)
+
+    if channel_username is None:
+        channel_username = call.message.sender_chat.title
 
     find_last_time = mongo_last_time.find_one({"user_id": user_id})
     find_callback = mongo_callback_data.find_one({"message_id": message_id})
@@ -263,16 +268,13 @@ async def inline(call):
     if call.from_user.username is not None:
         user_username = '@' + call.from_user.username
 
-    if channel_username is None:
-        channel_username = call.message.sender_chat.title
-
     await bot.send_message(my_id, user_username + ' in @' + channel_username + '\n' + text_button)
 
     await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=keyb)
 
 
 @dp.message_handler()
-async def forwarded_msg(msg):
+async def forwarded_msg(msg): # !!!!!!!!
     """Вызывается при пересылке сообщения из ТГ канала в бота для его настройки
        Добавляет в БД соответствующие документы в коллекции id и statistics"""
 
@@ -284,6 +286,9 @@ async def forwarded_msg(msg):
     user_id = msg.from_user.id
     channel_id = msg.forward_from_chat.id
     channel_username = msg.forward_from_chat.username
+
+    if channel_username is None:
+        channel_username = msg.forward_from_chat.title
 
     data_id = {"user_id": user_id, "channel_id": channel_id}
     data_stat = {'channel_username': channel_username, 'person': 0, 'general': 0}
@@ -321,7 +326,8 @@ async def run_bot_with_polling(on=False):
 
 def main():
     #run_bot_with_polling()
-    run_bot_with_webhook()
+    #run_bot_with_webhook()
+    executor.start_polling(dp, skip_updates=True)
 
 
 if __name__ == '__main__':
